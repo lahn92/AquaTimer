@@ -11,11 +11,10 @@ const char *ap_password = "123456789";
 // PWM Configuration
 const int PWM_PIN = 2;
 const int PWM_CHANNEL = 0;
-const int PWM_FREQ = 5000;      // 5 kHz
-const int PWM_RESOLUTION = 12;  // 12-bit resolution (0-4095)
-float currentDutyPWM = 0.0; // actual PWM applied
-float fadeStep = 0.2;       // max change per update in percent (adjust for smoothness)
-
+const int PWM_FREQ = 5000;     // 5 kHz
+const int PWM_RESOLUTION = 12; // 12-bit resolution (0-4095)
+float currentDutyPWM = 0.0;    // actual PWM applied
+float fadeStep = 0.2;          // max change per update in percent (adjust for smoothness)
 
 Preferences preferences;
 WebServer server(80);
@@ -25,9 +24,10 @@ String sta_pass;
 int timezoneOffset = 0;
 
 // Schedule data
-struct SchedulePoint {
-  float time;  // Time in hours (0-24)
-  int duty;    // Duty cycle 0-100%
+struct SchedulePoint
+{
+  float time; // Time in hours (0-24)
+  int duty;   // Duty cycle 0-100%
 };
 
 std::vector<SchedulePoint> schedulePoints;
@@ -46,11 +46,11 @@ void setPWMDuty(float dutyPercent)
 {
   // Clamp duty cycle to 0-100%
   dutyPercent = constrain(dutyPercent, 0.0, 100.0);
-  
+
   // Convert percentage to 12-bit value (0-4095) with high precision
   int pwmValue = (int)((dutyPercent / 100.0) * 4095.0 + 0.5);
   ledcWrite(PWM_CHANNEL, pwmValue);
-  
+
   Serial.print("PWM set to ");
   Serial.print(dutyPercent, 2);
   Serial.print("% (");
@@ -64,69 +64,78 @@ float getCurrentTimeInHours()
   now += timezoneOffset * 3600;
   struct tm timeinfo;
   localtime_r(&now, &timeinfo);
-  
+
   float hours = timeinfo.tm_hour + (timeinfo.tm_min / 60.0) + (timeinfo.tm_sec / 3600.0);
   return hours;
 }
 
 float calculateCurrentDuty()
 {
-  if (schedulePoints.size() == 0) {
+  if (schedulePoints.size() == 0)
+  {
     return 0.0; // No schedule, lights off
   }
-  
+
   float currentTime = getCurrentTimeInHours();
-  
+
   // Sort schedule points by time
-  std::sort(schedulePoints.begin(), schedulePoints.end(), 
-    [](const SchedulePoint &a, const SchedulePoint &b) { return a.time < b.time; });
-  
+  std::sort(schedulePoints.begin(), schedulePoints.end(),
+            [](const SchedulePoint &a, const SchedulePoint &b)
+            { return a.time < b.time; });
+
   // Find the two points to interpolate between
   SchedulePoint before = {0, 0};
   SchedulePoint after = {24, 0};
   bool foundBefore = false;
   bool foundAfter = false;
-  
-  for (size_t i = 0; i < schedulePoints.size(); i++) {
-    if (schedulePoints[i].time <= currentTime) {
+
+  for (size_t i = 0; i < schedulePoints.size(); i++)
+  {
+    if (schedulePoints[i].time <= currentTime)
+    {
       before = schedulePoints[i];
       foundBefore = true;
     }
-    if (schedulePoints[i].time >= currentTime && !foundAfter) {
+    if (schedulePoints[i].time >= currentTime && !foundAfter)
+    {
       after = schedulePoints[i];
       foundAfter = true;
     }
   }
-  
+
   // Handle edge cases
-  if (!foundBefore && !foundAfter) {
+  if (!foundBefore && !foundAfter)
+  {
     return 0.0; // No points at all
   }
-  
-  if (!foundBefore) {
+
+  if (!foundBefore)
+  {
     // Before first point - use 0 to first point interpolation
     before = {0, 0};
     after = schedulePoints[0];
   }
-  
-  if (!foundAfter) {
+
+  if (!foundAfter)
+  {
     // After last point - use last point to end of day
     before = schedulePoints[schedulePoints.size() - 1];
     after = {24, 0};
   }
-  
+
   // Linear interpolation with floating point precision
-  if (before.time == after.time) {
+  if (before.time == after.time)
+  {
     return (float)before.duty;
   }
-  
+
   float timeDiff = after.time - before.time;
   float timeFromBefore = currentTime - before.time;
   float ratio = timeFromBefore / timeDiff;
-  
+
   // High precision linear interpolation
   float duty = (float)before.duty + ((float)after.duty - (float)before.duty) * ratio;
-  
+
   return constrain(duty, 0.0, 100.0);
 }
 
@@ -135,11 +144,16 @@ void updatePWMFromSchedule()
   float targetDuty = calculateCurrentDuty();
 
   // Smooth fade
-  if (abs(targetDuty - currentDutyPWM) <= fadeStep) {
+  if (abs(targetDuty - currentDutyPWM) <= fadeStep)
+  {
     currentDutyPWM = targetDuty; // close enough
-  } else if (targetDuty > currentDutyPWM) {
+  }
+  else if (targetDuty > currentDutyPWM)
+  {
     currentDutyPWM += fadeStep;
-  } else {
+  }
+  else
+  {
     currentDutyPWM -= fadeStep;
   }
 
@@ -151,34 +165,37 @@ void loadScheduleFromPreferences()
   preferences.begin("schedule", true);
   String pointsJson = preferences.getString("points", "[]");
   preferences.end();
-  
+
   schedulePoints.clear();
-  
+
   StaticJsonDocument<2048> doc;
   DeserializationError error = deserializeJson(doc, pointsJson);
-  
-  if (error) {
+
+  if (error)
+  {
     Serial.print("Failed to parse schedule: ");
     Serial.println(error.c_str());
     return;
   }
-  
+
   JsonArray array = doc.as<JsonArray>();
-  for (JsonObject obj : array) {
+  for (JsonObject obj : array)
+  {
     String timeStr = obj["time"].as<String>();
     int duty = obj["duty"].as<int>();
-    
+
     // Parse time string "HH:MM"
     int colonPos = timeStr.indexOf(':');
-    if (colonPos > 0) {
+    if (colonPos > 0)
+    {
       int hours = timeStr.substring(0, colonPos).toInt();
       int minutes = timeStr.substring(colonPos + 1).toInt();
       float timeInHours = hours + (minutes / 60.0);
-      
+
       schedulePoints.push_back({timeInHours, duty});
     }
   }
-  
+
   Serial.print("Loaded ");
   Serial.print(schedulePoints.size());
   Serial.println(" schedule points");
@@ -203,7 +220,8 @@ void setupTime()
 
 void syncTimeIfNeeded()
 {
-  if (millis() - lastNTPSync >= NTP_SYNC_INTERVAL) {
+  if (millis() - lastNTPSync >= NTP_SYNC_INTERVAL)
+  {
     Serial.println("Periodic NTP sync...");
     setupTime();
   }
@@ -296,11 +314,11 @@ void handleSaveSchedule()
     preferences.begin("schedule", false);
     preferences.putString("points", server.arg("schedule"));
     preferences.end();
-    
+
     // Reload schedule and update PWM immediately
     loadScheduleFromPreferences();
     updatePWMFromSchedule();
-    
+
     server.send(200, "text/plain", "Schedule saved");
   }
   else
@@ -321,13 +339,13 @@ void handleStatus()
 {
   float currentDuty = calculateCurrentDuty();
   float currentTime = getCurrentTimeInHours();
-  
+
   StaticJsonDocument<256> doc;
   doc["currentTime"] = getFormattedTime();
   doc["currentTimeHours"] = currentTime;
   doc["currentDuty"] = currentDuty;
   doc["schedulePoints"] = schedulePoints.size();
-  
+
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
@@ -373,8 +391,10 @@ void handleMain()
   
   <div class="status">
     <h3>Current Status</h3>
-    <p>Time: <span id="currentTime">)rawliteral" + currentTime + R"rawliteral(</span></p>
-    <p>Light Duty: <span class="duty-display" id="currentDuty">)rawliteral" + String(currentDuty) + R"rawliteral(%</span></p>
+    <p>Time: <span id="currentTime">)rawliteral" +
+                currentTime + R"rawliteral(</span></p>
+    <p>Light Duty: <span class="duty-display" id="currentDuty">)rawliteral" +
+                String(currentDuty) + R"rawliteral(%</span></p>
   </div>
 
   <form action='/settimezone' method='POST'>
@@ -425,7 +445,8 @@ void handleMain()
 
   <script>
     let points = [];
-    const currentOffset = )rawliteral" + String(timezoneOffset) + R"rawliteral(;
+    const currentOffset = )rawliteral" +
+                String(timezoneOffset) + R"rawliteral(;
 
     window.onload = () => {
       const select = document.querySelector('select[name="offset"]');
@@ -629,7 +650,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(1000);
-  
+
   setupPWM();
   startSTAMode();
   currentDutyPWM = calculateCurrentDuty();
@@ -639,10 +660,11 @@ void setup()
 void loop()
 {
   server.handleClient();
-  
+
   // Update PWM output every second
   static unsigned long lastPWMUpdate = 0;
-  if (millis() - lastPWMUpdate >= 1000) {
+  if (millis() - lastPWMUpdate >= 1000)
+  {
     lastPWMUpdate = millis();
     updatePWMFromSchedule();
     syncTimeIfNeeded();
